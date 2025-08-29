@@ -53,14 +53,26 @@ func getRoom(roomCode string) (Room, bool) {
 var upgrader = websocket.Upgrader{}
 
 func homePage(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Home Page")
-	// http.ServeFile(w, r, "./public")
+	// Enhanced CORS headers for WebGL
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization")
+	w.Header().Set("Access-Control-Max-Age", "86400")
+
+	// Handle preflight OPTIONS request
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	fmt.Fprintf(w, "Bingo Game Server - WebGL Compatible")
 }
+
 func reader(conn *websocket.Conn) {
 	for {
 		messageType, p, err := conn.ReadMessage()
 		if err != nil {
-			log.Println(err)
+			log.Println("WebSocket read error:", err)
 			return
 		}
 		var data RoomResponse
@@ -77,7 +89,7 @@ func reader(conn *websocket.Conn) {
 			conn.WriteMessage(messageType, msg)
 
 		case "join-room":
-			log.Println("Creating room...")
+			log.Println("Joining room...")
 			room, error := getRoom(data.RoomCode)
 			if error {
 				msgToJoiner, _ := json.Marshal(&RoomResponse{Channel: "error", Res: "The room code you entered is invalid"})
@@ -142,18 +154,35 @@ func reader(conn *websocket.Conn) {
 			}
 
 		default:
-			log.Println("Channel not implemented")
+			log.Println("Channel not implemented:", data.Channel)
 		}
 	}
 }
+
 func wsEndpoint(w http.ResponseWriter, r *http.Request) {
+	// Enhanced CORS for WebSocket upgrade
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization")
+
+	// Handle preflight OPTIONS request
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Configure WebSocket upgrader for WebGL compatibility
+	upgrader.CheckOrigin = func(r *http.Request) bool {
+		return true // Allow all origins for WebGL
+	}
+
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println(err)
+		log.Println("WebSocket upgrade failed:", err)
 		http.Error(w, "websocket upgrade failed", http.StatusBadRequest)
 		return
 	}
-	log.Println("Client Connected")
+	log.Println("Client Connected from:", r.RemoteAddr)
 	defer ws.Close()
 	reader(ws)
 }
@@ -162,16 +191,31 @@ func setupRoutes() {
 	http.HandleFunc("/", homePage)
 	http.HandleFunc("/ws", wsEndpoint)
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
 }
 
 func main() {
+	// Configure WebSocket upgrader for maximum compatibility
 	upgrader = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
-			return true
+			return true // Allow all origins for WebGL
 		},
+		// Enable compression for better performance
+		EnableCompression: true,
+		// Set reasonable buffer sizes
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
 	}
 
 	setupRoutes()
@@ -179,18 +223,29 @@ func main() {
 	if port == "" {
 		port = "9000"
 	}
+
+	// Enhanced CORS middleware
 	corsHandler := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Set comprehensive CORS headers
 			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Max-Age", "86400")
+			w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Type")
+
+			// Handle preflight requests
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
 				return
 			}
+
 			next.ServeHTTP(w, r)
 		})
 	}
-	log.Println("Server listening on port : " + port)
+
+	log.Println("🚀 Bingo Game Server starting on port:", port)
+	log.Println("🌐 WebGL compatible with enhanced CORS support")
+	log.Println("🔌 WebSocket endpoint: /ws")
 	log.Fatal(http.ListenAndServe(":"+port, corsHandler(http.DefaultServeMux)))
 }
