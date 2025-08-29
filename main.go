@@ -197,7 +197,13 @@ func reader(conn *websocket.Conn) {
 		}
 	}
 }
+
 func wsEndpoint(w http.ResponseWriter, r *http.Request) {
+	// Set CORS headers for WebSocket upgrade
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("WebSocket upgrade failed:", err)
@@ -239,24 +245,7 @@ func main() {
 	if port == "" {
 		port = "9000"
 	}
-	corsHandler := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Handle preflight requests
-			if r.Method == "OPTIONS" {
-				w.Header().Set("Access-Control-Allow-Origin", "*")
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization")
-				w.Header().Set("Access-Control-Max-Age", "86400")
-				w.WriteHeader(http.StatusOK)
-				return
-			}
 
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			next.ServeHTTP(w, r)
-		})
-	}
-	log.Fatal(http.ListenAndServe(":"+port, corsHandler(http.DefaultServeMux)))
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 	fmt.Println("Server listening on port " + port + " >:)")
 }
