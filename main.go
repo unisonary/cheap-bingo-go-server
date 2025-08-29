@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
 	"util/util"
 
 	"github.com/gorilla/websocket"
@@ -58,102 +57,52 @@ func homePage(w http.ResponseWriter, r *http.Request) {
 	// http.ServeFile(w, r, "./public")
 }
 func reader(conn *websocket.Conn) {
-	if conn == nil {
-		log.Println("Error: nil connection passed to reader")
-		return
-	}
-
 	for {
 		messageType, p, err := conn.ReadMessage()
 		if err != nil {
-			log.Println("WebSocket read error:", err)
+			log.Println(err)
 			return
 		}
-
 		var data RoomResponse
-		if err := json.Unmarshal([]byte(p), &data); err != nil {
-			log.Println("JSON unmarshal error:", err)
-			continue
-		}
+		json.Unmarshal([]byte(p), &data)
 
 		switch data.Channel {
 		case "create-room":
-			fmt.Println("Creating room...")
+			log.Println("Creating room...")
 			roomCode := util.GenerateRoomCode(5)
 
 			createRoom(roomCode, Player{Name: data.Res, Socket: conn}, data.Dimension, data.AppVersion)
 
-			msg, err := json.Marshal(&RoomResponse{Channel: "create-room", Res: roomCode, RoomCode: roomCode})
-			if err != nil {
-				log.Println("JSON marshal error:", err)
-				continue
-			}
-			if err := conn.WriteMessage(messageType, msg); err != nil {
-				log.Println("WebSocket write error:", err)
-				return
-			}
+			msg, _ := json.Marshal(&RoomResponse{Channel: "create-room", Res: roomCode, RoomCode: roomCode})
+			conn.WriteMessage(messageType, msg)
 
 		case "join-room":
-			fmt.Println("Creating room...")
+			log.Println("Creating room...")
 			room, error := getRoom(data.RoomCode)
 			if error {
-				msgToJoiner, err := json.Marshal(&RoomResponse{Channel: "error", Res: "The room code you entered is invalid"})
-				if err != nil {
-					log.Println("JSON marshal error:", err)
-					continue
-				}
-				if err := conn.WriteMessage(messageType, msgToJoiner); err != nil {
-					log.Println("WebSocket write error:", err)
-					return
-				}
+				msgToJoiner, _ := json.Marshal(&RoomResponse{Channel: "error", Res: "The room code you entered is invalid"})
+				conn.WriteMessage(messageType, msgToJoiner)
 			} else {
 				if room.AppVersion == data.AppVersion {
 					if room.Joiner.Name == "" {
 						joinRoom(data.RoomCode, Player{Name: data.Res, Socket: conn})
 
-						msgToJoiner, err := json.Marshal(&RoomResponse{Channel: "game-ready", Res: room.Creator.Name, Dimension: room.Dimension, IsCreator: false})
-						if err != nil {
-							log.Println("JSON marshal error:", err)
-							continue
-						}
-						if err := conn.WriteMessage(messageType, msgToJoiner); err != nil {
-							log.Println("WebSocket write error:", err)
-							return
-						}
+						msgToJoiner, _ := json.Marshal(&RoomResponse{Channel: "game-ready", Res: room.Creator.Name, Dimension: room.Dimension, IsCreator: false})
+						conn.WriteMessage(messageType, msgToJoiner)
 
-						msgToCreator, err := json.Marshal(&RoomResponse{Channel: "game-ready", Res: data.Res, IsCreator: true})
-						if err != nil {
-							log.Println("JSON marshal error:", err)
-							continue
-						}
-						if err := room.Creator.Socket.WriteMessage(messageType, msgToCreator); err != nil {
-							log.Println("WebSocket write error to creator:", err)
-						}
+						msgToCreator, _ := json.Marshal(&RoomResponse{Channel: "game-ready", Res: data.Res, IsCreator: true})
+						room.Creator.Socket.WriteMessage(messageType, msgToCreator)
 					} else {
-						msgToJoiner, err := json.Marshal(&RoomResponse{Channel: "error", Res: "Room is already full"})
-						if err != nil {
-							log.Println("JSON marshal error:", err)
-							continue
-						}
-						if err := conn.WriteMessage(messageType, msgToJoiner); err != nil {
-							log.Println("WebSocket write error:", err)
-							return
-						}
+						msgToJoiner, _ := json.Marshal(&RoomResponse{Channel: "error", Res: "Room is already full"})
+						conn.WriteMessage(messageType, msgToJoiner)
 					}
 				} else {
-					msgToJoiner, err := json.Marshal(&RoomResponse{Channel: "error", Res: "Room creator has a different version of Bingo. Please make sure both have the latest version."})
-					if err != nil {
-						log.Println("JSON marshal error:", err)
-						continue
-					}
-					if err := conn.WriteMessage(messageType, msgToJoiner); err != nil {
-						log.Println("WebSocket write error:", err)
-						return
-					}
+					msgToJoiner, _ := json.Marshal(&RoomResponse{Channel: "error", Res: "Room creator has a different version of Bingo. Please make sure both have the latest version."})
+					conn.WriteMessage(messageType, msgToJoiner)
 				}
 			}
 
-			fmt.Println("Game is ready")
+			log.Println("Game is ready")
 
 		case "game-on":
 			room, _ := getRoom(data.RoomCode)
@@ -193,20 +142,15 @@ func reader(conn *websocket.Conn) {
 			}
 
 		default:
-			fmt.Println("Channel not implemented")
+			log.Println("Channel not implemented")
 		}
 	}
 }
-
 func wsEndpoint(w http.ResponseWriter, r *http.Request) {
-	// Set CORS headers for WebSocket upgrade
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println("WebSocket upgrade failed:", err)
+		log.Println(err)
+		http.Error(w, "websocket upgrade failed", http.StatusBadRequest)
 		return
 	}
 	log.Println("Client Connected")
@@ -217,16 +161,9 @@ func wsEndpoint(w http.ResponseWriter, r *http.Request) {
 func setupRoutes() {
 	http.HandleFunc("/", homePage)
 	http.HandleFunc("/ws", wsEndpoint)
-	http.HandleFunc("/health", healthCheck)
-}
-
-func healthCheck(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
-		"status":    "healthy",
-		"service":   "bingo-server",
-		"timestamp": time.Now().Format(time.RFC3339),
+	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
 	})
 }
 
@@ -235,9 +172,6 @@ func main() {
 		CheckOrigin: func(r *http.Request) bool {
 			return true
 		},
-		EnableCompression: true,
-		ReadBufferSize:    1024,
-		WriteBufferSize:   1024,
 	}
 
 	setupRoutes()
@@ -245,7 +179,18 @@ func main() {
 	if port == "" {
 		port = "9000"
 	}
-
-	log.Fatal(http.ListenAndServe(":"+port, nil))
-	fmt.Println("Server listening on port " + port + " >:)")
+	corsHandler := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+	log.Println("Server listening on port : " + port)
+	log.Fatal(http.ListenAndServe(":"+port, corsHandler(http.DefaultServeMux)))
 }
