@@ -35,8 +35,8 @@ class BingoServerMonitor:
         }
         
         # Configuration
-        self.check_interval = 30  # seconds
-        self.timeout = 10  # seconds
+        self.check_interval = 120  # seconds (1 minute)
+        self.timeout = 15  # seconds
         self.retry_count = 3
         self.alert_threshold = 3  # consecutive failures before alert
         
@@ -69,22 +69,29 @@ class BingoServerMonitor:
             # Create WebSocket connection with timeout
             ws = websocket.create_connection(self.ws_url, timeout=self.timeout)
             
-            # Send a test message
+            # Send a test message using a valid channel that the server handles
             test_message = {
-                "channel": "ping",
-                "res": "monitor",
+                "channel": "create-room",
+                "res": "monitor_test",
+                "dimension": 5,
                 "appVersion": "1.0.0"
             }
             
             ws.send(json.dumps(test_message))
             
             # Wait for response (or timeout)
-            ws.settimeout(5)
+            ws.settimeout(15)
             try:
                 response = ws.recv()
-                self.log("✅ WebSocket OK - Connection established and message sent", "SUCCESS")
-                ws.close()
-                return True
+                response_data = json.loads(response)
+                if response_data.get("channel") == "create-room" and response_data.get("roomCode"):
+                    self.log(f"✅ WebSocket OK - Room created: {response_data['roomCode']}", "SUCCESS")
+                    ws.close()
+                    return True
+                else:
+                    self.log(f"⚠️ WebSocket WARNING - Unexpected response: {response}", "WARNING")
+                    ws.close()
+                    return True  # Connection established, response received
             except websocket.WebSocketTimeoutException:
                 self.log("⚠️ WebSocket TIMEOUT - No response received", "WARNING")
                 ws.close()
@@ -251,10 +258,11 @@ class BingoServerMonitor:
             ws = websocket.create_connection(self.ws_url, timeout=self.timeout)
             self.log("✅ WebSocket connection established", "SUCCESS")
             
-            # Test message
+            # Test message using a valid channel
             test_message = {
-                "channel": "ping",
+                "channel": "create-room",
                 "res": "monitor_test",
+                "dimension": 5,
                 "appVersion": "1.0.0"
             }
             
@@ -262,10 +270,14 @@ class BingoServerMonitor:
             ws.send(json.dumps(test_message))
             
             # Wait for response
-            ws.settimeout(10)
+            ws.settimeout(15)
             try:
                 response = ws.recv()
-                self.log(f"✅ Response received: {response}", "SUCCESS")
+                response_data = json.loads(response)
+                if response_data.get("channel") == "create-room" and response_data.get("roomCode"):
+                    self.log(f"✅ Response received: Room created with code: {response_data['roomCode']}", "SUCCESS")
+                else:
+                    self.log(f"⚠️ Unexpected response: {response}", "WARNING")
             except websocket.WebSocketTimeoutException:
                 self.log("⚠️ No response received (timeout)", "WARNING")
                 
@@ -282,10 +294,10 @@ def main():
     parser = argparse.ArgumentParser(description="Bingo Server Ping Monitor")
     parser.add_argument("--url", default="https://cheap-bingo-go-server.onrender.com",
                        help="Base URL of the Bingo server")
-    parser.add_argument("--interval", type=int, default=30,
-                       help="Check interval in seconds (default: 30)")
-    parser.add_argument("--timeout", type=int, default=10,
-                       help="Request timeout in seconds (default: 10)")
+    parser.add_argument("--interval", type=int, default=60,
+                        help="Check interval in seconds (default: 60)")
+    parser.add_argument("--timeout", type=int, default=15,
+                       help="Request timeout in seconds (default: 15)")
     parser.add_argument("--threshold", type=int, default=3,
                        help="Alert threshold for consecutive failures (default: 3)")
     parser.add_argument("--single", action="store_true",
